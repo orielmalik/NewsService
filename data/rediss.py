@@ -1,14 +1,15 @@
 import redis
+from flask import Flask, jsonify
+import json
 
 class RedisConnector:
     def __init__(self):
         self.redis_client = None
-        self.connect()  # להתחבר בעת יצירת המחלקה
+        self.connect()
 
     def connect(self):
         try:
             self.redis_client = redis.Redis(host="127.0.0.1", port=6379, decode_responses=True)
-            # בדיקה אם החיבור עובד
             self.redis_client.ping()
             print("Connected to Redis")
         except Exception as e:
@@ -16,21 +17,20 @@ class RedisConnector:
             self.redis_client = None
 
     def ensure_connection(self):
-        """בדוק אם החיבור פעיל, ואם לא - התחבר מחדש."""
         if self.redis_client is None or not self.ping():
             print("Reconnecting to Redis...")
             self.connect()
 
-    def create_or_update_key(self, key, value):
-        self.ensure_connection()
-        try:
-            self.redis_client.set(key, value)
-            return f"Key '{key}' created/updated successfully."
-        except Exception as e:
-            return f"Failed to create/update key '{key}': {e}"
+    def create_content(self, content):
+        if self.redis_client.get(content.id) is None:
+            self.redis_client.set(content.id, json.dumps(content.to_dict()))
+            stored_content = self.redis_client.get(content.id)
+            return jsonify(json.loads(stored_content))  # המרה מ-bytes ל-dict
 
+        else:
+            # מחזיר שגיאה אם המפתח כבר קיים
+            return jsonify({"error": "exists id"}), 404
     def read_key(self, key):
-        self.ensure_connection()
         try:
             value = self.redis_client.get(key)
             if value is None:
@@ -60,7 +60,6 @@ class RedisConnector:
             return f"Failed to retrieve keys: {e}"
 
     def ping(self):
-        """בדוק אם החיבור ל-Redis פעיל."""
         try:
             return self.redis_client.ping()
         except:
