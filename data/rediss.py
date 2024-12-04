@@ -2,10 +2,14 @@ import redis
 from flask import Flask, jsonify
 import json
 
+import ValidationUtils
+
+
+#REDIS service for  HOTTEST NEWS(1 hour and expired)
 class RedisConnector:
     def __init__(self):
         self.redis_client = None
-        self.connect()
+        self.connect()  # Connect to Redis on initialization
 
     def connect(self):
         try:
@@ -19,48 +23,47 @@ class RedisConnector:
     def ensure_connection(self):
         if self.redis_client is None or not self.ping():
             print("Reconnecting to Redis...")
-            self.connect()
-
-    def create_content(self, content):
-        if self.redis_client.get(content.id) is None:
-            self.redis_client.set(content.id, json.dumps(content.to_dict()))
-            stored_content = self.redis_client.get(content.id)
-            return jsonify(json.loads(stored_content))  # המרה מ-bytes ל-dict
-
-        else:
-            # מחזיר שגיאה אם המפתח כבר קיים
-            return jsonify({"error": "exists id"}), 404
-    def read_key(self, key):
-        try:
-            value = self.redis_client.get(key)
-            if value is None:
-                return f"Key '{key}' does not exist."
-            return value
-        except Exception as e:
-            return f"Failed to read key '{key}': {e}"
-
-    def delete_key(self, key):
-        self.ensure_connection()
-        try:
-            result = self.redis_client.delete(key)
-            if result == 0:
-                return f"Key '{key}' does not exist or already deleted."
-            return f"Key '{key}' deleted successfully."
-        except Exception as e:
-            return f"Failed to delete key '{key}': {e}"
-
-    def get_keys(self, pattern="*"):
-        self.ensure_connection()
-        try:
-            keys = self.redis_client.keys(pattern)
-            if not keys:
-                return "No keys found."
-            return keys
-        except Exception as e:
-            return f"Failed to retrieve keys: {e}"
+            self.connect()  # Reconnect if necessary
 
     def ping(self):
         try:
             return self.redis_client.ping()
         except:
-            return False
+            return False  # Handle potential exceptions
+
+    def create_content(self, content):
+        if content is not None:
+            # Check if content exists before creating a new one
+            existing_content = self.redis_client.get(content.id)
+            if existing_content is None:
+                self.redis_client.set(content.id, json.dumps(content.to_dict()),ex=3600)
+                return jsonify({"message": "NEW CONTENT OBJECT CREATED", "content": self.redis_client.get(content.id)}, 200)
+            else:
+                return jsonify({"error": "Content with ID already exists"}), 400
+        else:
+            return jsonify({"error": "Invalid content object"}), 400  # Handle missing content
+
+    def delete_content(self,id='all'):
+        if id == 'all':
+            for k in self.redis_client.keys:
+                 self.redis_client.delete(k)
+        elif id in self.redis_client.keys():
+            self.redis_client.delete(id)
+        else:
+            return jsonify({"error": "not DELETE"}),400
+        return jsonify({"message": "DELETE work"}),200
+
+    def put_content(self,content):
+        if not ValidationUtils.validate_email(content.email):
+            return jsonify({"error","email"}),401
+        if content.id   in self.redis_client.keys():
+            self.redis_client.set(content.id, json.dumps(content.to_dict()))
+        else:
+            return jsonify({"error": "not updated"}),400
+
+
+    def get_content(self,type='all'):
+        if type == 'all':
+            return self.redis_client.get(pattern='*').decode('utf-8')
+        else:
+            return self.redis_client.get(pattern=type).decode('utf-8')
